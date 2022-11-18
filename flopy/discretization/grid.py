@@ -6,6 +6,10 @@ import numpy as np
 from ..plot.plotutil import UnstructuredPlotUtilities
 from ..utils import geometry
 from ..utils.gridutil import get_lni
+from ..utils.reference import (
+    read_attribs_from_namfile_header,
+    read_usgs_model_reference_file,
+)
 
 
 class CachedData:
@@ -841,57 +845,23 @@ class Grid:
         # check for reference info in the nam file header
         if namefile is None:
             return False
-        xul, yul = None, None
-        header = []
-        with open(namefile, "r") as f:
-            for line in f:
-                if not line.startswith("#"):
-                    break
-                header.extend(line.strip().replace("#", "").split(";"))
-
-        for item in header:
-            if "xll" in item.lower():
-                try:
-                    xll = float(item.split(":")[1])
-                    self._xoff = xll
-                except:
-                    pass
-            elif "yll" in item.lower():
-                try:
-                    yll = float(item.split(":")[1])
-                    self._yoff = yll
-                except:
-                    pass
-            elif "xul" in item.lower():
-                try:
-                    xul = float(item.split(":")[1])
-                except:
-                    pass
-            elif "yul" in item.lower():
-                try:
-                    yul = float(item.split(":")[1])
-                except:
-                    pass
-            elif "rotation" in item.lower():
-                try:
-                    self._angrot = float(item.split(":")[1])
-                except:
-                    pass
-            elif "proj4_str" in item.lower():
-                try:
-                    self._proj4 = ":".join(item.split(":")[1:]).strip()
-                    if self._proj4.lower() == "none":
-                        self._proj4 = None
-                except:
-                    pass
-            elif "start" in item.lower():
-                try:
-                    start_datetime = item.split(":")[1].strip()
-                except:
-                    pass
-
+        ref = read_attribs_from_namfile_header(namefile)
+        get_from_file = {
+            # attr name: key in file
+            "_xoff": "xll",
+            "_yoff": "yll",
+            "_angrot": "rotation",
+            "_epsg": "epsg",
+            "_proj4": "proj4_str",
+        }
+        for attr, ref_key in get_from_file.items():
+            val = ref.get(ref_key, None)
+            if val:
+                setattr(self, attr, val)
         # we need to rotate the modelgrid first, then we can
         # calculate the xll and yll from xul and yul
+        xul = ref.get('xul', None)
+        yul = ref.get('yul', None)
         if (xul, yul) != (None, None):
             self.set_coord_info(
                 xoff=self._xul_to_xll(xul),
@@ -904,42 +874,33 @@ class Grid:
     def read_usgs_model_reference_file(self, reffile="usgs.model.reference"):
         """read spatial reference info from the usgs.model.reference file
         https://water.usgs.gov/ogw/policy/gw-model/modelers-setup.html"""
-        xul = None
-        yul = None
+        
         if os.path.exists(reffile):
-            with open(reffile) as input:
-                for line in input:
-                    if len(line) > 1:
-                        if line.strip()[0] != "#":
-                            info = line.strip().split("#")[0].split()
-                            if len(info) > 1:
-                                data = " ".join(info[1:])
-                                if info[0] == "xll":
-                                    self._xoff = float(data)
-                                elif info[0] == "yll":
-                                    self._yoff = float(data)
-                                elif info[0] == "xul":
-                                    xul = float(data)
-                                elif info[0] == "yul":
-                                    yul = float(data)
-                                elif info[0] == "rotation":
-                                    self._angrot = float(data)
-                                elif info[0] == "epsg":
-                                    self._epsg = int(data)
-                                elif info[0] == "proj4":
-                                    self._proj4 = data
-                                elif info[0] == "start_date":
-                                    start_datetime = data
-
+            ref = read_usgs_model_reference_file(reffile)
+            get_from_file = {
+                # attr name: key in file
+                "_xoff": "xll",
+                "_yoff": "yll",
+                "_angrot": "rotation",
+                "_epsg": "epsg",
+                "_proj4": "proj4",
+            }
+            print(ref)
+            for attr, ref_key in get_from_file.items():
+                val = ref.get(ref_key, None)
+                if val:
+                    setattr(self, attr, val)
+            
             # model must be rotated first, before setting xoff and yoff
             # when xul and yul are provided.
+            xul = ref.get('xul', None)
+            yul = ref.get('yul', None)
             if (xul, yul) != (None, None):
                 self.set_coord_info(
                     xoff=self._xul_to_xll(xul),
                     yoff=self._yul_to_yll(yul),
                     angrot=self._angrot,
                 )
-
             return True
         else:
             return False
