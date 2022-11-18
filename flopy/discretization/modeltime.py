@@ -1,4 +1,11 @@
+import os
+
 import numpy as np
+
+from ..utils.reference import (
+    read_attribs_from_namfile_header,
+    read_usgs_model_reference_file,
+)
 
 
 class ModelTime:
@@ -32,6 +39,32 @@ class ModelTime:
     @property
     def start_datetime(self):
         return self._start_datetime
+    
+    @property
+    def start_time(self):
+        """start_time is not tracked separately from start_date, attempt to 
+        return just the time using numpy.timedelta64"""
+        if isinstance(self.start_datetime, np.datetime64):
+            day = self.start_datetime\
+                .astype('datetime64[D]')\
+                .astype(self.start_datetime.dtype)
+            return self.start_datetime - day  # just the time
+        else:
+            msg = "current self.start_datetime type does not support time-only\
+                 manipulation, try casting to numpy.datetime64: {}"
+            raise ValueError(msg.format(type(self._start_datetime)))
+    
+    @start_time.setter
+    def start_time(self, value: np.datetime64):
+        if isinstance(self.start_datetime, np.datetime64):
+            day = self.start_datetime\
+                .astype('datetime64[D]')\
+                .astype(np.datetime64)
+            self._start_datetime = day + value.astype(np.timedelta64)
+        else:
+            msg = "current self.start_datetime type does not support time-only\
+                 manipulation, try casting to numpy.datetime64: {}"
+            raise ValueError(msg.format(type(self._start_datetime)))
 
     @property
     def perlen(self):
@@ -89,3 +122,47 @@ class ModelTime:
                 n += 1
 
         return np.array(tslen)
+    
+    def attribs_from_namfile_header(self, namefile):
+        # check for reference info in the nam file header
+        if namefile is None:
+            return False
+        ref = read_attribs_from_namfile_header(namefile)
+        get_from_file = {
+            # attr name: list of possible keys in file
+            'start_datetime': [
+                'start_datetime',
+                'start_date',
+                'start',
+            ],
+        }
+        for attr, ref_keys in get_from_file.items():
+            for ref_key in ref_keys:
+                val = ref.get(ref_key, None)
+                if val:
+                    setattr(self, attr, val)
+                    break  # Only set the first one found
+
+        return True
+
+    def read_usgs_model_reference_file(self, reffile="usgs.model.reference"):
+        """read spatial reference info from the usgs.model.reference file
+        https://water.usgs.gov/ogw/policy/gw-model/modelers-setup.html"""
+        
+        if os.path.exists(reffile):
+            ref = read_usgs_model_reference_file(reffile)
+            get_from_file = {
+                # attr name: key in file
+                'start_datetime': 'start_date',
+                'start_time': 'start_time',
+                '_time_units': 'time_units',
+            }
+            print(ref)
+            for attr, ref_key in get_from_file.items():
+                val = ref.get(ref_key, None)
+                if val:
+                    setattr(self, attr, val)
+            
+            return True
+        else:
+            return False
