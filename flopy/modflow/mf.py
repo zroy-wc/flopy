@@ -124,6 +124,7 @@ class Modflow(BaseModel):
             verbose=verbose,
             **kwargs,
         )
+        self._mt_resync = True  # Not set on parent
         self.version_types = {
             "mf2k": "MODFLOW-2000",
             "mf2005": "MODFLOW-2005",
@@ -248,23 +249,26 @@ class Modflow(BaseModel):
 
     @property
     def modeltime(self):
-        if self.get_package("disu") is not None:
-            dis = self.disu
-        else:
-            dis = self.dis
-        # build model time
-        data_frame = {
-            "perlen": dis.perlen.array,
-            "nstp": dis.nstp.array,
-            "tsmult": dis.tsmult.array,
-        }
-        self._model_time = ModelTime(
-            data_frame,
-            dis.itmuni_dict[dis.itmuni],
-            dis.start_datetime,
-            dis.steady.array,
-        )
-        return self._model_time
+        if (self._modeltime is None) or (self._mt_resync):  # First load | sync
+            if self.get_package("disu") is not None:
+                dis = self.disu
+            else:
+                dis = self.dis
+            # build model time
+            data_frame = {
+                "perlen": dis.perlen.array,
+                "nstp": dis.nstp.array,
+                "tsmult": dis.tsmult.array,
+            }
+            self._modeltime = ModelTime(
+                data_frame,
+                dis.itmuni_dict[dis.itmuni],
+                dis.start_datetime,
+                dis.steady.array,
+            )
+            self._mt_resync = False
+            
+        return self._modeltime
 
     @property
     def modelgrid(self):
