@@ -687,8 +687,8 @@ class BaseModel(ModelInterface):
         pckg = self.get_package(item)
         if pckg is not None or item in self.mfnam_packages:
             return pckg
-        if item == "modelgrid":
-            return
+        if item in ["modelgrid", "modeltime"]:
+            return 
         raise AttributeError(item)
 
     def get_ext_dict_attr(
