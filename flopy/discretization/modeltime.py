@@ -22,10 +22,10 @@ class ModelTime:
 
     def __init__(
         self,
-        period_data=None,
-        time_units="days",
-        start_datetime=None,
-        steady_state=None,
+        period_data: dict | None=None,
+        time_units: str="days",
+        start_datetime: str | np.datetime64 | None=None,  # YYYY-mm-ddTHH:MM:SS
+        steady_state: bool | None=None,
     ):
         self._period_data = period_data
         self._time_units = time_units
@@ -40,32 +40,70 @@ class ModelTime:
     def start_datetime(self):
         return self._start_datetime
     
+    @start_datetime.setter
+    def start_datetime(self, value: str | np.datetime64):
+        self._start_datetime = value
+    
+    @property
+    def start_date(self):
+        """start_date is not tracked separately from start_datetime, attempt to
+        return just the date using numpy.timedelta64, or str.split('T')[0]"""
+        sdt = self._start_datetime
+        if isinstance(sdt, np.datetime64):  # Remove date part for just time
+            time = sdt - sdt.astype('datetime64[D]').astype(sdt.dtype)
+            return sdt - time
+        elif isinstance(sdt, str) and ('T' in sdt):
+            return sdt.split('T')[0]
+        else:
+            msg = "current self.start_datetime type does not support date-only\
+                 manipulation, try casting to numpy.datetime64 or str: {}"
+            raise ValueError(msg.format(type(self._start_datetime)))
+    
+    @start_date.setter
+    def start_date(self, value: str | np.timedelta64):
+        sdt = self._start_datetime
+        if sdt is None:
+            sdt = value
+        elif isinstance(sdt, str):
+            assert isinstance(value, str)
+            if 'T' in sdt:
+                sdt = sdt.split('T')[-1]
+            else:
+                sdt = '00:00:00'
+            sdt = value + 'T' + sdt  # drop old date
+        elif isinstance(sdt, np.datetime64):
+            assert isinstance(value, np.timedelta64)
+            time = sdt - sdt.astype('datetime64[D]').astype(sdt.dtype)
+            sdt = value + time
+        self._start_datetime = sdt
+    
     @property
     def start_time(self):
-        """start_time is not tracked separately from start_date, attempt to 
-        return just the time using numpy.timedelta64"""
-        if isinstance(self.start_datetime, np.datetime64):
-            day = self.start_datetime\
-                .astype('datetime64[D]')\
-                .astype(self.start_datetime.dtype)
-            return self.start_datetime - day  # just the time
+        """start_time is not tracked separately from start_datetime, attempt to 
+        return just the time using numpy.timedelta64, or str.split('T')[-1]"""
+        sdt = self._start_datetime
+        if isinstance(sdt, np.datetime64):  # Remove date part for just time
+            return sdt - sdt.astype('datetime64[D]').astype(sdt.dtype)
+        elif isinstance(sdt, str) and ('T' in sdt):
+            return sdt.split('T')[-1]
         else:
             msg = "current self.start_datetime type does not support time-only\
-                 manipulation, try casting to numpy.datetime64: {}"
+                 manipulation, try casting to numpy.datetime64 or str: {}"
             raise ValueError(msg.format(type(self._start_datetime)))
     
     @start_time.setter
-    def start_time(self, value: np.datetime64):
-        if isinstance(self.start_datetime, np.datetime64):
-            day = self.start_datetime\
-                .astype('datetime64[D]')\
-                .astype(np.datetime64)
-            self._start_datetime = day + value.astype(np.timedelta64)
-        else:
-            msg = "current self.start_datetime type does not support time-only\
-                 manipulation, try casting to numpy.datetime64: {}"
-            raise ValueError(msg.format(type(self._start_datetime)))
-
+    def start_time(self, value: str | np.timedelta64):
+        sdt = self._start_datetime
+        if sdt is None:
+            sdt = '1970-1-1T00:00:00'  # default value
+        if isinstance(sdt, str):
+            assert isinstance(value, str)
+            sdt = sdt.split('T')[0] + 'T' + value  # drop old time
+        elif isinstance(sdt, np.datetime64):
+            assert isinstance(value, np.timedelta64)
+            sdt = sdt.astype('datetime64[D]').astype(sdt.dtype) + value
+        self._start_datetime = sdt
+    
     @property
     def perlen(self):
         return self._period_data["perlen"]
@@ -127,14 +165,12 @@ class ModelTime:
         # check for reference info in the nam file header
         if namefile is None:
             return False
+
         ref = read_attribs_from_namfile_header(namefile)
         get_from_file = {
             # attr name: list of possible keys in file
-            'start_datetime': [
-                'start_datetime',
-                'start_date',
-                'start',
-            ],
+            'start_date': ['start_date', 'start'],
+            'start_time': ['start_time'],
         }
         for attr, ref_keys in get_from_file.items():
             for ref_key in ref_keys:
@@ -148,21 +184,19 @@ class ModelTime:
     def read_usgs_model_reference_file(self, reffile="usgs.model.reference"):
         """read spatial reference info from the usgs.model.reference file
         https://water.usgs.gov/ogw/policy/gw-model/modelers-setup.html"""
-        
-        if os.path.exists(reffile):
-            ref = read_usgs_model_reference_file(reffile)
-            get_from_file = {
-                # attr name: key in file
-                'start_datetime': 'start_date',
-                'start_time': 'start_time',
-                '_time_units': 'time_units',
-            }
-            print(ref)
-            for attr, ref_key in get_from_file.items():
-                val = ref.get(ref_key, None)
-                if val:
-                    setattr(self, attr, val)
-            
-            return True
-        else:
+        if not os.path.exists(reffile):
             return False
+        ref = read_usgs_model_reference_file(reffile)
+        get_from_file = {
+            # attr name: key in file
+            'start_date': 'start_date',
+            'start_time': 'start_time',
+            '_time_units': 'time_units',
+        }
+        for attr, ref_key in get_from_file.items():
+            val = ref.get(ref_key, None)
+            if val:
+                setattr(self, attr, val)
+
+        return True
+
