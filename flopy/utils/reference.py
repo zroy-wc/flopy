@@ -66,6 +66,7 @@ def read_usgs_model_reference_file(reffile = "usgs.model.reference") -> dict:
         "epsg": int,
         "proj4": str,
         "start_date": str,
+        "start_time": str
     }
     ref = dict()
     # Assumed to exist, checked by calling methods
